@@ -1,0 +1,6 @@
+
+bin/
+obj/
+
+# Local configuration containing secrets
+swiftcare_api/Models/VolunteerOnboarding/appsettings.json
