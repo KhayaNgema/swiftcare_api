@@ -1,0 +1,26 @@
+﻿
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace swiftcare_api.Services.VolunteerAttendance
+{
+    public interface IVolunteerAttendanceCheckInService
+    {
+        Task<FaceLoginAttendanceResult> CheckInAfterFaceLoginAsync(
+            string volunteerId,
+            string diditSessionId,
+            CancellationToken cancellationToken = default);
+    }
+
+    public sealed class FaceLoginAttendanceResult
+    {
+        public bool CheckedIn { get; init; }
+        public bool AlreadyCheckedIn { get; init; }
+        public string Status { get; init; } = "NotCheckedIn";
+        public string Message { get; init; } = string.Empty;
+        public int? AttendanceId { get; init; }
+        public int? VolunteerRosterShiftId { get; init; }
+        public DateTime? CheckInTime { get; init; }
+        public int LateMinutes { get; init; }
+    }
+}

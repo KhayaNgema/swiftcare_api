@@ -9,7 +9,7 @@ using swiftcare_api.Data;
 using swiftcare_api.Models;
 using swiftcare_api.Models.VolunteerOnboarding;
 using swiftcare_api.Services;
-
+using swiftcare_api.Services.VolunteerAttendance;
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.IdentityModel.Tokens.Jwt;
@@ -29,6 +29,7 @@ namespace swiftcare_api.Controllers
         private readonly UserManager<UserBaseModel> _userManager;
         private readonly ILogger<AuthController> _logger;
         private readonly IConfiguration _configuration;
+        private readonly IVolunteerAttendanceCheckInService _attendanceCheckInService;
 
         // ============================================================
         // DIDIT FACE LOGIN
@@ -59,7 +60,8 @@ namespace swiftcare_api.Controllers
             ILogger<AuthController> logger,
             IConfiguration configuration,
             IDiditFaceLoginService diditFaceLoginService,
-            swiftcare_apiDbContext dbContext)
+            swiftcare_apiDbContext dbContext,
+            IVolunteerAttendanceCheckInService attendanceCheckInService)
         {
             _signInManager = signInManager;
             _userManager = userManager;
@@ -70,6 +72,7 @@ namespace swiftcare_api.Controllers
                 diditFaceLoginService;
 
             _dbContext = dbContext;
+            _attendanceCheckInService = attendanceCheckInService;
         }
 
         // ============================================================
@@ -101,108 +104,108 @@ namespace swiftcare_api.Controllers
         // DO NOT CHANGE
         // ============================================================
 
-        [HttpPost("login")]
-        [AllowAnonymous]
-        public async Task<IActionResult> Login(
-            [FromBody] LoginRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                var errors = ModelState
-                    .Where(x =>
-                        x.Value.Errors.Count > 0)
-                    .ToDictionary(
-                        kvp => kvp.Key,
-                        kvp =>
-                            kvp.Value.Errors
-                                .Select(e =>
-                                    e.ErrorMessage)
-                                .ToArray()
-                    );
+        //[HttpPost("login")]
+        //[AllowAnonymous]
+        //public async Task<IActionResult> Login(
+        //    [FromBody] LoginRequest request)
+        //{
+        //    if (!ModelState.IsValid)
+        //    {
+        //        var errors = ModelState
+        //            .Where(x =>
+        //                x.Value.Errors.Count > 0)
+        //            .ToDictionary(
+        //                kvp => kvp.Key,
+        //                kvp =>
+        //                    kvp.Value.Errors
+        //                        .Select(e =>
+        //                            e.ErrorMessage)
+        //                        .ToArray()
+        //            );
 
-                return BadRequest(new
-                {
-                    message =
-                        "Validation failed",
+        //        return BadRequest(new
+        //        {
+        //            message =
+        //                "Validation failed",
 
-                    errors
-                });
-            }
+        //            errors
+        //        });
+        //    }
 
-            var isEmail =
-                new EmailAddressAttribute()
-                    .IsValid(request.EmailOrPhone);
+        //    var isEmail =
+        //        new EmailAddressAttribute()
+        //            .IsValid(request.EmailOrPhone);
 
-            var user = isEmail
-                ? await _userManager
-                    .FindByEmailAsync(
-                        request.EmailOrPhone)
+        //    var user = isEmail
+        //        ? await _userManager
+        //            .FindByEmailAsync(
+        //                request.EmailOrPhone)
 
-                : await _userManager
-                    .Users
-                    .FirstOrDefaultAsync(
-                        u =>
-                            u.PhoneNumber ==
-                            request.EmailOrPhone);
+        //        : await _userManager
+        //            .Users
+        //            .FirstOrDefaultAsync(
+        //                u =>
+        //                    u.PhoneNumber ==
+        //                    request.EmailOrPhone);
 
-            if (user == null)
-            {
-                return NotFound(
-                    "User account does not exist.");
-            }
+        //    if (user == null)
+        //    {
+        //        return NotFound(
+        //            "User account does not exist.");
+        //    }
 
-            if (!user.EmailConfirmed)
-            {
-                return StatusCode(
-                    406,
-                    "User email address is not confirmed. Please check your emails");
-            }
+        //    if (!user.EmailConfirmed)
+        //    {
+        //        return StatusCode(
+        //            406,
+        //            "User email address is not confirmed. Please check your emails");
+        //    }
 
-            var result =
-                await _signInManager
-                    .PasswordSignInAsync(
-                        user.UserName,
-                        request.Password,
-                        request.RememberMe,
-                        lockoutOnFailure: false
-                    );
+        //    var result =
+        //        await _signInManager
+        //            .PasswordSignInAsync(
+        //                user.UserName,
+        //                request.Password,
+        //                request.RememberMe,
+        //                lockoutOnFailure: false
+        //            );
 
-            if (!result.Succeeded)
-            {
-                return StatusCode(
-                    406,
-                    "Incorrect email/phone/password.");
-            }
+        //    if (!result.Succeeded)
+        //    {
+        //        return StatusCode(
+        //            406,
+        //            "Incorrect email/phone/password.");
+        //    }
 
-            var roles =
-                await _userManager
-                    .GetRolesAsync(user);
+        //    var roles =
+        //        await _userManager
+        //            .GetRolesAsync(user);
 
-            var role =
-                roles?.FirstOrDefault()
-                ?? "Customer";
+        //    var role =
+        //        roles?.FirstOrDefault()
+        //        ?? "Customer";
 
-            var token =
-                GenerateJwtToken(
-                    user,
-                    role);
+        //    var token =
+        //        GenerateJwtToken(
+        //            verifiedVolunteer,
+        //            role);
 
-            return Ok(new
-            {
-                message =
-                    "Login successful",
+        //    return Ok(new
+        //    {
+        //        message =
+        //            "Login successful",
 
-                userName =
-                    user.UserName,
+        //        userName =
+        //            user.UserName,
 
-                email =
-                    user.Email,
+        //        email =
+        //            user.Email,
 
-                token,
+        //        token,
 
-                role
-            });
-        }
+        //        role
+        //    });
+        //}
 
         // ============================================================
         // FACE LOGIN
@@ -1123,15 +1126,21 @@ namespace swiftcare_api.Controllers
             }
 
             // ============================================================
-            // GET ROLE
+            // GET VOLUNTEER ROLE
             // ============================================================
+            //
+            // The Volunteer is the authenticated mobile user.
+            // Therefore the JWT role MUST come from the Volunteer
+            // Identity account, not the Applicant account.
+            //
 
-            var roles =
+            var volunteerRoles =
                 await _userManager
-                    .GetRolesAsync(applicant);
+                    .GetRolesAsync(verifiedVolunteer);
 
             var role =
-                roles?.FirstOrDefault()
+                volunteerRoles?
+                    .FirstOrDefault()
                 ?? "Volunteer";
 
             // ============================================================
@@ -1147,9 +1156,8 @@ namespace swiftcare_api.Controllers
 
             var token =
                 GenerateJwtToken(
-                    applicant,
+                    verifiedVolunteer,
                     role);
-
             // ============================================================
             // SUCCESS
             // ============================================================
@@ -1169,46 +1177,74 @@ namespace swiftcare_api.Controllers
                 sessionId,
                 decision.MatchedSessionId);
 
+
+            FaceLoginAttendanceResult attendanceResult;
+
+            try
+            {
+                attendanceResult =
+                    await _attendanceCheckInService
+                        .CheckInAfterFaceLoginAsync(
+                            verifiedVolunteer.Id,
+                            sessionId,
+                            cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                // Attendance failure must not be reported as a
+                // successful check-in. The face login itself has
+                // already passed verification.
+
+                _logger.LogError(
+                    ex,
+                    "Face login succeeded but attendance check-in failed. " +
+                    "VolunteerId: {VolunteerId}, SessionId: {SessionId}",
+                    verifiedVolunteer.Id,
+                    sessionId);
+
+                attendanceResult = new FaceLoginAttendanceResult
+                {
+                    CheckedIn = false,
+                    Status = "CheckInError",
+                    Message =
+                        "Face login succeeded, but attendance could not " +
+                        "be recorded. Please contact your supervisor."
+                };
+            }
+
+
             return Ok(new
             {
                 success = true,
-
                 authenticated = true,
-
                 completed = true,
+                message = "Face login successful.",
 
-                message =
-                    "Face login successful.",
+                volunteerId = verifiedVolunteer.Id,
+                volunteerNumber = verifiedVolunteer.VolunteerNumber,
 
-                // Identity account
-                userId =
-                    applicant.Id,
+                userName = verifiedVolunteer.UserName,
+                email = verifiedVolunteer.Email,
+                firstName = verifiedVolunteer.FirstName,
+                lastName = verifiedVolunteer.LastName,
 
-                userName =
-                    applicant.UserName,
+                onboardingId = onboarding.VolunteerOnboardingId,
 
-                email =
-                    applicant.Email,
-
-                firstName =
-                    applicant.FirstName,
-
-                lastName =
-                    applicant.LastName,
-
-                // Actual activated volunteer
-                volunteerId =
-                    verifiedVolunteer.Id,
-
-                volunteerNumber =
-                    verifiedVolunteer.VolunteerNumber,
-
-                onboardingId =
-                    onboarding.VolunteerOnboardingId,
-
+                role,
                 token,
 
-                role
+                attendance = new
+                {
+                    checkedIn = attendanceResult.CheckedIn,
+                    alreadyCheckedIn = attendanceResult.AlreadyCheckedIn,
+                    status = attendanceResult.Status,
+                    message = attendanceResult.Message,
+                    attendanceId = attendanceResult.AttendanceId,
+                    volunteerRosterShiftId =
+                        attendanceResult.VolunteerRosterShiftId,
+                    checkInTime = attendanceResult.CheckInTime,
+                    lateMinutes = attendanceResult.LateMinutes
+                }
             });
         }
         // ============================================================
@@ -1332,46 +1368,52 @@ namespace swiftcare_api.Controllers
         // ============================================================
 
         private string GenerateJwtToken(
-            UserBaseModel user,
-            string role)
+       Volunteer volunteer,
+       string role)
         {
-            var utcNow =
-                DateTime.UtcNow;
+            var utcNow = DateTime.UtcNow;
 
             var claims = new[]
             {
-                new Claim(
-                    ClaimTypes.NameIdentifier,
-                    user.Id),
+        // ============================================================
+        // VOLUNTEER IS THE AUTHENTICATED USER
+        // ============================================================
+        new Claim(
+            ClaimTypes.NameIdentifier,
+            volunteer.Id),
 
-                new Claim(
-                    ClaimTypes.Name,
-                    user.UserName),
+        new Claim(
+            ClaimTypes.Name,
+            volunteer.UserName ?? string.Empty),
 
-                new Claim(
-                    ClaimTypes.Email,
-                    user.Email),
+        new Claim(
+            ClaimTypes.Email,
+            volunteer.Email ?? string.Empty),
 
-                new Claim(
-                    ClaimTypes.Role,
-                    role),
+        new Claim(
+            ClaimTypes.Role,
+            role),
 
-                new Claim(
-                    JwtRegisteredClaimNames.Jti,
-                    Guid.NewGuid().ToString()),
+        new Claim(
+            "VolunteerId",
+            volunteer.Id),
 
-                new Claim(
-                    JwtRegisteredClaimNames.Iat,
-                    new DateTimeOffset(utcNow)
-                        .ToUnixTimeSeconds()
-                        .ToString(),
-                    ClaimValueTypes.Integer64)
-            };
+        new Claim(
+            JwtRegisteredClaimNames.Jti,
+            Guid.NewGuid().ToString()),
+
+        new Claim(
+            JwtRegisteredClaimNames.Iat,
+            new DateTimeOffset(utcNow)
+                .ToUnixTimeSeconds()
+                .ToString(),
+            ClaimValueTypes.Integer64)
+    };
 
             var key =
                 new SymmetricSecurityKey(
                     Encoding.UTF8.GetBytes(
-                        _configuration["Jwt:Key"]));
+                        _configuration["Jwt:Key"]!));
 
             var credentials =
                 new SigningCredentials(

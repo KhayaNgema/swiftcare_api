@@ -10,6 +10,7 @@ using Microsoft.OpenApi.Models;
 using swiftcare_api.Data;
 using swiftcare_api.Models;
 using swiftcare_api.Services;
+using swiftcare_api.Services.VolunteerAttendance;
 using System.Globalization;
 using System.Security.Claims;
 using System.Text;
@@ -128,6 +129,11 @@ builder.Services.AddLogging(loggingBuilder =>
     loggingBuilder.AddConsole();
     loggingBuilder.AddDebug();
 });
+
+
+builder.Services.AddScoped<
+    IVolunteerAttendanceCheckInService,
+    VolunteerAttendanceCheckInService>();
 
 builder.Services.AddHttpClient<
     IDiditFaceLoginService,
