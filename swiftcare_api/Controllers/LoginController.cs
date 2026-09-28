@@ -244,11 +244,29 @@ namespace swiftcare_api.Controllers
         [HttpPost("face-login")]
         [AllowAnonymous]
         public async Task<IActionResult> FaceLogin(
-            CancellationToken cancellationToken)
+     [FromBody] FaceLoginRequest request,
+     CancellationToken cancellationToken)
         {
-            // ========================================================
+            // ============================================================
+            // LOCATION CAPTURED FROM MOBILE DEVICE
+            // ============================================================
+
+            double? latitude = request?.Latitude;
+            double? longitude = request?.Longitude;
+            double? accuracy = request?.Accuracy;
+
+            _logger.LogInformation(
+                "Face login location received. " +
+                "Latitude: {Latitude}, " +
+                "Longitude: {Longitude}, " +
+                "Accuracy: {Accuracy}m",
+                latitude,
+                longitude,
+                accuracy);
+
+            // ============================================================
             // CREATE UNIQUE FACE LOGIN ATTEMPT REFERENCE
-            // ========================================================
+            // ============================================================
 
             var loginAttemptReference =
                 $"SWIFTCARE-FACE-LOGIN-{Guid.NewGuid():N}";
@@ -260,13 +278,9 @@ namespace swiftcare_api.Controllers
 
             try
             {
-                // ====================================================
+                // ========================================================
                 // CREATE DIDIT FACE LOGIN SESSION
-                //
-                // NO EMAIL
-                // NO PHONE
-                // NO USERNAME
-                // ====================================================
+                // ========================================================
 
                 var faceLoginSession =
                     await _diditFaceLoginService
@@ -274,9 +288,9 @@ namespace swiftcare_api.Controllers
                             loginAttemptReference,
                             cancellationToken);
 
-                // ====================================================
+                // ========================================================
                 // DIDIT SERVICE FAILED
-                // ====================================================
+                // ========================================================
 
                 if (!faceLoginSession.Success)
                 {
@@ -311,11 +325,9 @@ namespace swiftcare_api.Controllers
                         });
                 }
 
-                // ====================================================
+                // ========================================================
                 // SESSION CREATED
-                //
-                // DO NOT LOG THE SESSION TOKEN.
-                // ====================================================
+                // ========================================================
 
                 _logger.LogInformation(
                     "Didit passive-liveness face-login session created. " +
@@ -332,15 +344,9 @@ namespace swiftcare_api.Controllers
                         faceLoginSession.VerificationUrl),
                     faceLoginSession.Status);
 
-                // ====================================================
+                // ========================================================
                 // NATIVE FLUTTER SDK RESPONSE
-                //
-                // sessionToken is the important new property.
-                //
-                // verificationUrl is retained temporarily for
-                // backwards compatibility but native Flutter does
-                // not need it.
-                // ====================================================
+                // ========================================================
 
                 return Ok(new
                 {
@@ -427,7 +433,6 @@ namespace swiftcare_api.Controllers
                     });
             }
         }
-
         // ============================================================
         // FACE LOGIN STATUS
         //
@@ -452,6 +457,9 @@ namespace swiftcare_api.Controllers
         [AllowAnonymous]
         public async Task<IActionResult> FaceLoginStatus(
      string sessionId,
+     [FromQuery] double? latitude,
+     [FromQuery] double? longitude,
+     [FromQuery] double? accuracy,
      CancellationToken cancellationToken)
         {
             // ============================================================
@@ -468,6 +476,54 @@ namespace swiftcare_api.Controllers
             }
 
             sessionId = sessionId.Trim();
+
+            // ============================================================
+            // VALIDATE GPS VALUES
+            // ============================================================
+
+            if (latitude.HasValue &&
+                (latitude.Value < -90 || latitude.Value > 90))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Invalid latitude."
+                });
+            }
+
+            if (longitude.HasValue &&
+                (longitude.Value < -180 || longitude.Value > 180))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Invalid longitude."
+                });
+            }
+
+            if (accuracy.HasValue && accuracy.Value < 0)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Invalid location accuracy."
+                });
+            }
+
+            // ============================================================
+            // LOG LOCATION
+            // ============================================================
+
+            _logger.LogInformation(
+                "Face login status request received. " +
+                "SessionId: {SessionId}, " +
+                "Latitude: {Latitude}, " +
+                "Longitude: {Longitude}, " +
+                "Accuracy: {Accuracy}m",
+                sessionId,
+                latitude,
+                longitude,
+                accuracy);
 
             // ============================================================
             // GET DIDIT DECISION
@@ -635,13 +691,7 @@ namespace swiftcare_api.Controllers
 
             // ============================================================
             // OPTION 1:
-            //
             // MATCHED DIDIT SESSION ID
-            //
-            // We use this only to locate the original verification.
-            //
-            // IMPORTANT:
-            // Do NOT apply all verification requirements here.
             // ============================================================
 
             if (!string.IsNullOrWhiteSpace(
@@ -678,14 +728,7 @@ namespace swiftcare_api.Controllers
 
             // ============================================================
             // OPTION 2:
-            //
             // MATCHED VENDOR DATA
-            //
-            // Example:
-            //
-            // SWIFTCARE-ID-1008
-            //
-            // This is the most important mapping for your current log.
             // ============================================================
 
             if (verification == null &&
@@ -788,7 +831,7 @@ namespace swiftcare_api.Controllers
             // ============================================================
 
             if (verification.Status !=
-                    VolunteerIdentityVerificationStatus.Verified)
+                VolunteerIdentityVerificationStatus.Verified)
             {
                 _logger.LogWarning(
                     "Matched SwiftCare verification {VerificationId} " +
@@ -897,15 +940,6 @@ namespace swiftcare_api.Controllers
 
             // ============================================================
             // FIND APPLICANT ID
-            //
-            // IMPORTANT:
-            // VolunteerIdentityVerification.VolunteerId currently contains
-            // the Applicant Identity ID created during the application/
-            // onboarding process.
-            //
-            // It does NOT contain the final Volunteer Identity ID.
-            //
-            // Therefore we first resolve the Applicant.
             // ============================================================
 
             var applicantId =
@@ -959,11 +993,6 @@ namespace swiftcare_api.Controllers
             // ============================================================
             // MAKE SURE THIS IDENTITY IS AN APPLICANT
             // ============================================================
-            //
-            // Because UserBaseModel uses TPH inheritance, querying
-            // Applicants ensures that the Identity record is actually
-            // an Applicant and not some other Identity user.
-            // ============================================================
 
             var applicantProfile =
                 await _dbContext
@@ -995,14 +1024,6 @@ namespace swiftcare_api.Controllers
 
             // ============================================================
             // FIND VOLUNTEER ONBOARDING
-            //
-            // THIS IS THE IMPORTANT LINK.
-            //
-            // VolunteerIdentityVerification
-            //        ↓
-            // ApplicantId
-            //        ↓
-            // VolunteerOnboarding.ApplicantId
             // ============================================================
 
             var onboarding =
@@ -1041,12 +1062,6 @@ namespace swiftcare_api.Controllers
 
             // ============================================================
             // FIND VOLUNTEER
-            //
-            // Volunteer does NOT need ApplicantId.
-            //
-            // The Volunteer is linked to the onboarding using:
-            //
-            // Volunteer.VolunteerOnboardingId
             // ============================================================
 
             var verifiedVolunteer =
@@ -1106,10 +1121,6 @@ namespace swiftcare_api.Controllers
 
             // ============================================================
             // EMAIL CONFIRMATION
-            //
-            // The authenticated Identity user is the Applicant Identity
-            // because that is the Identity account used throughout the
-            // onboarding process.
             // ============================================================
 
             if (!applicant.EmailConfirmed)
@@ -1128,11 +1139,6 @@ namespace swiftcare_api.Controllers
             // ============================================================
             // GET VOLUNTEER ROLE
             // ============================================================
-            //
-            // The Volunteer is the authenticated mobile user.
-            // Therefore the JWT role MUST come from the Volunteer
-            // Identity account, not the Applicant account.
-            //
 
             var volunteerRoles =
                 await _userManager
@@ -1145,21 +1151,15 @@ namespace swiftcare_api.Controllers
 
             // ============================================================
             // GENERATE JWT
-            //
-            // Keep the Applicant Identity ID as the authenticated
-            // Identity/User ID because that is the Identity account
-            // associated with the onboarding/verification.
-            //
-            // The Volunteer record is used to validate that this
-            // applicant has actually been activated as a volunteer.
             // ============================================================
 
             var token =
                 GenerateJwtToken(
                     verifiedVolunteer,
                     role);
+
             // ============================================================
-            // SUCCESS
+            // LOG SUCCESS + LOCATION
             // ============================================================
 
             _logger.LogInformation(
@@ -1169,14 +1169,23 @@ namespace swiftcare_api.Controllers
                 "OnboardingId: {OnboardingId}, " +
                 "VerificationId: {VerificationId}, " +
                 "DiditLoginSessionId: {SessionId}, " +
-                "MatchedDiditSessionId: {MatchedSessionId}",
+                "MatchedDiditSessionId: {MatchedSessionId}, " +
+                "Latitude: {Latitude}, " +
+                "Longitude: {Longitude}, " +
+                "Accuracy: {Accuracy}m",
                 applicant.Id,
                 verifiedVolunteer.Id,
                 onboarding.VolunteerOnboardingId,
                 verification.Id,
                 sessionId,
-                decision.MatchedSessionId);
+                decision.MatchedSessionId,
+                latitude,
+                longitude,
+                accuracy);
 
+            // ============================================================
+            // CHECK ATTENDANCE
+            // ============================================================
 
             FaceLoginAttendanceResult attendanceResult;
 
@@ -1187,63 +1196,127 @@ namespace swiftcare_api.Controllers
                         .CheckInAfterFaceLoginAsync(
                             verifiedVolunteer.Id,
                             sessionId,
+                            latitude,
+                            longitude,
+                            accuracy,
                             cancellationToken);
             }
             catch (Exception ex)
             {
                 // Attendance failure must not be reported as a
-                // successful check-in. The face login itself has
-                // already passed verification.
+                // successful check-in.
+                //
+                // Face login itself has already passed verification.
 
                 _logger.LogError(
                     ex,
                     "Face login succeeded but attendance check-in failed. " +
-                    "VolunteerId: {VolunteerId}, SessionId: {SessionId}",
+                    "VolunteerId: {VolunteerId}, " +
+                    "SessionId: {SessionId}, " +
+                    "Latitude: {Latitude}, " +
+                    "Longitude: {Longitude}, " +
+                    "Accuracy: {Accuracy}",
                     verifiedVolunteer.Id,
-                    sessionId);
+                    sessionId,
+                    latitude,
+                    longitude,
+                    accuracy);
 
-                attendanceResult = new FaceLoginAttendanceResult
-                {
-                    CheckedIn = false,
-                    Status = "CheckInError",
-                    Message =
-                        "Face login succeeded, but attendance could not " +
-                        "be recorded. Please contact your supervisor."
-                };
+                attendanceResult =
+                    new FaceLoginAttendanceResult
+                    {
+                        CheckedIn = false,
+
+                        AlreadyCheckedIn = false,
+
+                        Status = "CheckInError",
+
+                        Message =
+                            "Face login succeeded, but attendance could not " +
+                            "be recorded. Please contact your supervisor."
+                    };
             }
 
+            // ============================================================
+            // SUCCESS RESPONSE
+            // ============================================================
 
             return Ok(new
             {
                 success = true,
+
                 authenticated = true,
+
                 completed = true,
-                message = "Face login successful.",
 
-                volunteerId = verifiedVolunteer.Id,
-                volunteerNumber = verifiedVolunteer.VolunteerNumber,
+                message =
+                    "Face login successful.",
 
-                userName = verifiedVolunteer.UserName,
-                email = verifiedVolunteer.Email,
-                firstName = verifiedVolunteer.FirstName,
-                lastName = verifiedVolunteer.LastName,
+                volunteerId =
+                    verifiedVolunteer.Id,
 
-                onboardingId = onboarding.VolunteerOnboardingId,
+                volunteerNumber =
+                    verifiedVolunteer.VolunteerNumber,
+
+                userName =
+                    verifiedVolunteer.UserName,
+
+                email =
+                    verifiedVolunteer.Email,
+
+                firstName =
+                    verifiedVolunteer.FirstName,
+
+                lastName =
+                    verifiedVolunteer.LastName,
+
+                onboardingId =
+                    onboarding.VolunteerOnboardingId,
 
                 role,
+
                 token,
+
+                // ========================================================
+                // LOCATION INFORMATION
+                // ========================================================
+
+                location = new
+                {
+                    latitude,
+                    longitude,
+                    accuracy
+                },
+
+                // ========================================================
+                // ATTENDANCE
+                // ========================================================
 
                 attendance = new
                 {
-                    checkedIn = attendanceResult.CheckedIn,
-                    alreadyCheckedIn = attendanceResult.AlreadyCheckedIn,
-                    status = attendanceResult.Status,
-                    message = attendanceResult.Message,
-                    attendanceId = attendanceResult.AttendanceId,
+                    checkedIn =
+                        attendanceResult.CheckedIn,
+
+                    alreadyCheckedIn =
+                        attendanceResult.AlreadyCheckedIn,
+
+                    status =
+                        attendanceResult.Status,
+
+                    message =
+                        attendanceResult.Message,
+
+                    attendanceId =
+                        attendanceResult.AttendanceId,
+
                     volunteerRosterShiftId =
                         attendanceResult.VolunteerRosterShiftId,
-                    checkInTime = attendanceResult.CheckInTime,
-                    lateMinutes = attendanceResult.LateMinutes
+
+                    checkInTime =
+                        attendanceResult.CheckInTime,
+
+                    lateMinutes =
+                        attendanceResult.LateMinutes
                 }
             });
         }
@@ -1443,5 +1516,14 @@ namespace swiftcare_api.Controllers
             return new JwtSecurityTokenHandler()
                 .WriteToken(token);
         }
+    }
+
+    public class FaceLoginRequest
+    {
+        public double? Latitude { get; set; }
+
+        public double? Longitude { get; set; }
+
+        public double? Accuracy { get; set; }
     }
 }

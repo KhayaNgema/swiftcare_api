@@ -1,4 +1,4 @@
-﻿
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -9,6 +9,9 @@ namespace swiftcare_api.Services.VolunteerAttendance
         Task<FaceLoginAttendanceResult> CheckInAfterFaceLoginAsync(
             string volunteerId,
             string diditSessionId,
+            double? latitude,
+            double? longitude,
+            double? accuracy,
             CancellationToken cancellationToken = default);
     }
 
