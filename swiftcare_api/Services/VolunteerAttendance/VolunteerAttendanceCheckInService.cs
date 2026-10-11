@@ -501,5 +501,261 @@ namespace swiftcare_api.Services.VolunteerAttendance
                     attendance.LateMinutes
             };
         }
+
+        // ============================================================
+        // CHECK OUT
+        // ============================================================
+
+        public async Task<VolunteerAttendanceCheckoutResult>
+            CheckOutAsync(
+                string volunteerId,
+                int attendanceId,
+                CancellationToken cancellationToken = default)
+        {
+            // ============================================================
+            // VALIDATE
+            // ============================================================
+
+            if (string.IsNullOrWhiteSpace(volunteerId))
+            {
+                throw new ArgumentException(
+                    "Volunteer ID is required.",
+                    nameof(volunteerId));
+            }
+
+            if (attendanceId <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(attendanceId),
+                    "Attendance ID must be greater than zero.");
+            }
+
+            // ============================================================
+            // SOUTH AFRICA TIME ZONE
+            // ============================================================
+
+            TimeZoneInfo localZone;
+
+            try
+            {
+                localZone =
+                    TimeZoneInfo.FindSystemTimeZoneById(
+                        "Africa/Johannesburg");
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                localZone =
+                    TimeZoneInfo.FindSystemTimeZoneById(
+                        "South Africa Standard Time");
+            }
+
+            // ============================================================
+            // CURRENT TIME
+            // ============================================================
+
+            var nowUtc = DateTime.UtcNow;
+
+            var nowLocal =
+                TimeZoneInfo.ConvertTimeFromUtc(
+                    nowUtc,
+                    localZone);
+
+            // ============================================================
+            // FIND ATTENDANCE
+            // ============================================================
+
+            var attendance =
+                await _dbContext.VolunteerAttendances
+                    .Include(a => a.VolunteerRosterShift)
+                    .FirstOrDefaultAsync(
+                        a =>
+                            a.AttendanceId == attendanceId &&
+                            a.VolunteerId == volunteerId,
+                        cancellationToken);
+
+            // ============================================================
+            // ATTENDANCE NOT FOUND
+            // ============================================================
+
+            if (attendance == null)
+            {
+                return new VolunteerAttendanceCheckoutResult
+                {
+                    CheckedOut = false,
+                    AlreadyCheckedOut = false,
+
+                    Status = "NotCheckedIn",
+
+                    Message =
+                        "No attendance record was found for your shift."
+                };
+            }
+
+            // ============================================================
+            // ALREADY CHECKED OUT
+            // ============================================================
+
+            if (attendance.CheckOutTime.HasValue)
+            {
+                return new VolunteerAttendanceCheckoutResult
+                {
+                    CheckedOut = false,
+                    AlreadyCheckedOut = true,
+
+                    Status = "CheckedOut",
+
+                    Message =
+                        "You have already checked out of this shift.",
+
+                    AttendanceId =
+                        attendance.AttendanceId,
+
+                    VolunteerRosterShiftId =
+                        attendance.VolunteerRosterShiftId,
+
+                    CheckInTime =
+                        attendance.CheckInTime,
+
+                    CheckOutTime =
+                        attendance.CheckOutTime,
+
+                    LateMinutes =
+                        attendance.LateMinutes,
+
+                    EarlyDepartureMinutes =
+                        attendance.EarlyDepartureMinutes
+                };
+            }
+
+            // ============================================================
+            // MUST HAVE CHECKED IN
+            // ============================================================
+
+            if (!attendance.CheckInTime.HasValue)
+            {
+                return new VolunteerAttendanceCheckoutResult
+                {
+                    CheckedOut = false,
+                    AlreadyCheckedOut = false,
+
+                    Status = "NotCheckedIn",
+
+                    Message =
+                        "You cannot check out because you have not checked in.",
+
+                    AttendanceId =
+                        attendance.AttendanceId,
+
+                    VolunteerRosterShiftId =
+                        attendance.VolunteerRosterShiftId
+                };
+            }
+
+            // ============================================================
+            // CALCULATE EARLY DEPARTURE
+            // ============================================================
+
+            var shift = attendance.VolunteerRosterShift;
+
+            var earlyDepartureMinutes = 0;
+
+            if (shift != null)
+            {
+                var scheduledEnd =
+                    attendance.AttendanceDate.Date
+                    .Add(shift.EndTime);
+
+                var minutesBeforeEnd =
+                    (
+                        scheduledEnd -
+                        nowLocal
+                    ).TotalMinutes;
+
+                earlyDepartureMinutes =
+                    Math.Max(
+                        0,
+                        (int)Math.Floor(
+                            minutesBeforeEnd));
+            }
+
+            // ============================================================
+            // UPDATE ATTENDANCE
+            // ============================================================
+
+            attendance.CheckOutTime =
+                nowUtc;
+
+            attendance.EarlyDepartureMinutes =
+                earlyDepartureMinutes;
+
+            attendance.Status =
+                VolunteerAttendanceStatus.CheckedOut;
+
+            attendance.ModifiedDateTime =
+                nowUtc;
+
+            attendance.ModifiedBy =
+                volunteerId;
+
+            // ============================================================
+            // SAVE
+            // ============================================================
+
+            await _dbContext.SaveChangesAsync(
+                cancellationToken);
+
+            // ============================================================
+            // LOG
+            // ============================================================
+
+            _logger.LogInformation(
+                "Volunteer {VolunteerId} checked out. " +
+                "AttendanceId: {AttendanceId}. " +
+                "ShiftId: {ShiftId}. " +
+                "CheckOutTime: {CheckOutTime}. " +
+                "EarlyDepartureMinutes: {EarlyDepartureMinutes}.",
+                volunteerId,
+                attendance.AttendanceId,
+                attendance.VolunteerRosterShiftId,
+                attendance.CheckOutTime,
+                attendance.EarlyDepartureMinutes);
+
+            // ============================================================
+            // RETURN
+            // ============================================================
+
+            return new VolunteerAttendanceCheckoutResult
+            {
+                CheckedOut = true,
+                AlreadyCheckedOut = false,
+
+                Status =
+                    VolunteerAttendanceStatus.CheckedOut
+                        .ToString(),
+
+                Message =
+                    earlyDepartureMinutes > 0
+                        ? "You have been checked out. You left before your scheduled shift end."
+                        : "You have been successfully checked out.",
+
+                AttendanceId =
+                    attendance.AttendanceId,
+
+                VolunteerRosterShiftId =
+                    attendance.VolunteerRosterShiftId,
+
+                CheckInTime =
+                    attendance.CheckInTime,
+
+                CheckOutTime =
+                    attendance.CheckOutTime,
+
+                LateMinutes =
+                    attendance.LateMinutes,
+
+                EarlyDepartureMinutes =
+                    attendance.EarlyDepartureMinutes
+            };
+        }
     }
 }

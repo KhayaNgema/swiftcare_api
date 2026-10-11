@@ -1320,6 +1320,97 @@ namespace swiftcare_api.Controllers
                 }
             });
         }
+
+
+        // ============================================================
+        // CHECK OUT
+        // ============================================================
+
+        [HttpPost("check-out")]
+        [Authorize]
+        public async Task<IActionResult> CheckOut(
+            [FromBody] CheckOutAttendanceRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (request.AttendanceId <= 0)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Attendance ID is required."
+                });
+            }
+
+            var volunteerId =
+                _userManager.GetUserId(User);
+
+            if (string.IsNullOrWhiteSpace(volunteerId))
+            {
+                return Unauthorized(new
+                {
+                    success = false,
+                    message = "Volunteer account could not be identified."
+                });
+            }
+
+            var result =
+                await _attendanceCheckInService
+                    .CheckOutAsync(
+                        volunteerId,
+                        request.AttendanceId,
+                        cancellationToken);
+
+            if (result.Status == "NotCheckedIn")
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    checkedOut = false,
+                    alreadyCheckedOut = false,
+
+                    message =
+                        result.Message
+                });
+            }
+
+            return Ok(new
+            {
+                success = true,
+
+                checkedOut =
+                    result.CheckedOut,
+
+                alreadyCheckedOut =
+                    result.AlreadyCheckedOut,
+
+                status =
+                    result.Status,
+
+                message =
+                    result.Message,
+
+                attendance = new
+                {
+                    attendanceId =
+                        result.AttendanceId,
+
+                    volunteerRosterShiftId =
+                        result.VolunteerRosterShiftId,
+
+                    checkInTime =
+                        result.CheckInTime,
+
+                    checkOutTime =
+                        result.CheckOutTime,
+
+                    lateMinutes =
+                        result.LateMinutes,
+
+                    earlyDepartureMinutes =
+                        result.EarlyDepartureMinutes
+                }
+            });
+        }
         // ============================================================
         // DIDIT STATUS HELPERS
         // ============================================================
@@ -1517,7 +1608,10 @@ namespace swiftcare_api.Controllers
                 .WriteToken(token);
         }
     }
-
+    public sealed class CheckOutAttendanceRequest
+    {
+        public int AttendanceId { get; set; }
+    }
     public class FaceLoginRequest
     {
         public double? Latitude { get; set; }
